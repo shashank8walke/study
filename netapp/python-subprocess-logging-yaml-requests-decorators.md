@@ -6,8 +6,27 @@
 
 **Use case:** Run external programs (git, ls, custom scripts) from Python. Not for concurrency — use `threading`/`asyncio` for that.
 
+Even when a dedicated library exists (e.g. `gitpython`), `subprocess` is often simpler when you want to limit dependencies.
+
 ```python
 import subprocess
+```
+
+### Unix process fundamentals
+
+`fork()` creates a child process by duplicating the parent:
+- Returns `0` in the child process
+- Returns the child's PID (positive int) in the parent
+- Returns `-1` on error
+
+```bash
+pstree          # visualize the process tree (Unix)
+```
+
+```python
+import psutil   # Python library to inspect running processes, CPU, memory
+for proc in psutil.process_iter(['pid', 'name']):
+    print(proc.info)
 ```
 
 ### `subprocess.run()` — blocking, simple
@@ -21,6 +40,10 @@ result = subprocess.run(["python", "a.py", "arg1"])
 
 ```python
 subprocess.run(["git", "status"], check=True, timeout=5)
+
+# Send input to a program that reads from stdin interactively
+subprocess.run(["python", "timegame.py"], input="\n\n", encoding='utf-8')
+# "\n\n" simulates pressing Enter twice — useful for scripting interactive CLIs
 ```
 
 | Arg | Effect |
@@ -83,6 +106,8 @@ output, _ = p2.communicate()
 **Levels (lowest → highest):** DEBUG(10) → INFO(20) → WARNING(30) → ERROR(40) → CRITICAL(50)
 
 Default threshold is WARNING — anything below is silently dropped.
+
+Default output format: `WARNING:root:message` — `root` is the default logger's name.
 
 ### Basic setup (simple scripts)
 
@@ -204,6 +229,14 @@ production:
 ```
 
 Useful in CI/CD pipelines and Kubernetes configs to avoid repetition.
+
+### NetApp interview talking points
+
+- **"I use `safe_load` by default"** — shows security awareness
+- **"YAML is central to Kubernetes, Ansible, Terraform"** — connects to cloud/storage automation context
+- **"I've worked with nested YAML configs"** — relevant to infra/storage workflows
+- **`default_flow_style=False`** — keeps dumped output in block style (human-readable), not inline `{}`
+- **Anchors & aliases (`&anchor` / `*alias`)** — reuse config blocks in complex pipelines, avoids duplication
 
 ---
 

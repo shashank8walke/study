@@ -208,15 +208,26 @@ mount / umount             # mount/unmount filesystems
 
 `df` = filesystem-level view; `du` = directory-level view.
 
+### Process forking
+
+`fork()` creates a child by duplicating the parent process:
+- Returns `0` in the child
+- Returns child's PID (positive int) in the parent
+- Returns `-1` on error
+
 ### File operations
 
 ```bash
-find . -name "*.log" -type f -size +5M -user root   # complex search
+find . -name "*.log" -type f -size +5M -user root      # complex search
 find / -user bandit7 -group bandit6 -size 33c 2>/dev/null  # suppress permission errors
-ln -s target link          # create symlink
+find . -size 1033c -not -executable -readable          # find by exact byte size + permissions
+file ./-file*          # examine file type (handles filenames starting with -)
+ln -s target link      # create symlink
 ```
 
 `2>/dev/null` redirects stderr (e.g. permission denied noise) to null — critical pattern for automation scripts.
+
+`locate` uses a pre-built index (fast, may be stale). `find` searches the live filesystem (slower, always accurate). Use `find` in scripts.
 
 ### Inode concept
 
@@ -249,8 +260,9 @@ Key must be `chmod 600` — SSH refuses keys readable by others. Used everywhere
 base64 -d data.txt             # decode base64
 cat file | tr 'A-Za-z' 'N-ZA-Mn-za-m'   # ROT13 decode
 xxd file | head                # hex dump (inspect binary)
-file data                      # detect file type
+file data                      # detect file type (checks magic bytes, not extension)
 strings file | grep pattern    # extract printable text from binary
+mv data data.gz && gunzip data.gz  # trick: rename to correct extension before decompressing disguised files
 ```
 
 ---
@@ -285,10 +297,13 @@ Flags: `-t` TCP, `-u` UDP, `-l` listening only, `-n` numeric (skip DNS), `-p` sh
 ```bash
 ping host                      # ICMP reachability
 traceroute host                # path + latency per hop (probe = test packet)
-nc -zv hostname 443            # check if remote port is open (netcat)
+nc -zv hostname 443            # check if remote port is open (netcat — "Swiss army knife" of networking)
 nmap host                      # port scan
 dig example.com                # DNS lookup
+openssl s_client -connect host:443   # test SSL/TLS handshake; check cert expiry on HTTPS endpoints
 ```
+
+`/etc/services` — maps well-known port numbers to service names (reference file, not active config).
 
 ### How DNS resolution works
 
@@ -329,7 +344,15 @@ ss -tulnp                      # 6. on db server: is it actually listening?
 
 ### traceroute notes
 
-`* * *` means the router dropped/blocked ICMP probes — not necessarily a problem, just a silent router. Multiple IPs per hop = different paths taken by each probe packet (load balancing).
+Real path example (WSL → google.com, 26 hops):
+```
+You (WSL) → Windows Host → Home Router → Spectrum ISP
+→ Spectrum Backbone → Ashburn VA (peering point) → Google Backbone → Google Server
+```
+Latency increases with distance. Total hops depend on routing — 26 is typical for cross-country.
+
+`* * *` means the router dropped/blocked ICMP probes — not necessarily a problem, just a silent router.  
+Multiple IPs per hop = each probe packet took a different path (load balancing); the 3 probes per hop aren't guaranteed to follow the same route.
 
 ---
 
