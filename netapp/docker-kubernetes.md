@@ -307,6 +307,158 @@ You declare what you want. Kubernetes' **control loops** continuously compare ac
 - Scaled-down nodes are drained
 - Failed containers are restarted
 
+---
+
+## Ingress — External Access Done Right
+
+**Problem with LoadBalancer:** Every service you expose externally gets its own cloud load balancer with its own public IP. 10 services = 10 load balancers = expensive and messy.
+
+**Ingress solves this:** One external entry point. An Ingress resource defines routing rules — which URL path or hostname goes to which internal Service. One public IP, traffic routed internally.
+
+```
+Internet
+    │
+    ▼
+Ingress Controller (NGINX pod)  ← reads Ingress rules
+    │
+    ├── /api/*     → api-service (ClusterIP)
+    ├── /web/*     → frontend-service (ClusterIP)
+    └── app2.com/* → app2-service (ClusterIP)
+```
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: myapp.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80
+```
+
+**An Ingress resource alone does nothing.** You also need an **Ingress Controller** — a pod running in your cluster (typically NGINX or Traefik) that reads Ingress rules and actually routes the traffic. On cloud providers, install via Helm or use a managed one. On Minikube: `minikube addons enable ingress`.
+
+---
+
+## Kubernetes Volumes
+
+Pods are ephemeral — when a pod dies, all its data is lost. Kubernetes volumes provide persistent storage.
+
+### PersistentVolume (PV)
+
+Actual storage resource in the cluster — an EBS volume, NFS share, etc. Exists independently of any pod. Created by a cluster admin or dynamically provisioned.
+
+### PersistentVolumeClaim (PVC)
+
+A pod's request for storage: *"I need 10Gi of ReadWriteOnce storage."* Kubernetes matches the claim to an available PV (or provisions one via StorageClass).
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce        # one node can mount read-write (RWX = many nodes)
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: gp2    # which StorageClass to use
+```
+
+```yaml
+# Reference PVC in a pod
+volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: my-pvc
+containers:
+  - volumeMounts:
+      - mountPath: /data
+        name: data
+```
+
+### StorageClass — Dynamic Provisioning
+
+Instead of pre-creating PVs manually, a StorageClass automatically provisions a PV from the cloud provider whenever a PVC is created. **This is how production clusters work.**
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast
+provisioner: ebs.csi.aws.com     # AWS EBS provisioner
+parameters:
+  type: gp3
+```
+
+---
+
+## StatefulSet — For Stateful Applications
+
+Deployments are for **stateless** apps. For **stateful** apps (databases, message brokers), use StatefulSet.
+
+What StatefulSet provides that Deployment cannot:
+
+| Feature | Detail |
+|---|---|
+| **Stable, ordered pod names** | Pods get fixed ordinal names: `mongodb-0`, `mongodb-1`, `mongodb-2`. Same names even after delete+recreate. |
+| **Stable network identity** | Each pod gets a fixed DNS name: `mongodb-0.mongodb-service.namespace.svc.cluster.local`. Other pods can always reach `mongodb-0` specifically. |
+| **Ordered startup/shutdown** | Pods start in order (0 → 1 → 2) and shut down in reverse (2 → 1 → 0). Critical for database initialization. |
+| **Individual PVC per pod** | Each pod gets its own PersistentVolumeClaim. When `mongodb-0` is recreated, it reattaches to exactly the same volume — data is preserved. |
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+spec:
+  serviceName: "mongodb-service"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:6
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+  volumeClaimTemplates:              # each pod gets its own PVC
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+```
+
+---
+
 ### Key Interview Takeaways
 
 - **Pod vs Container** — Pod is Kubernetes' unit, not the container. A pod wraps one or more containers and gives them a shared network/storage identity. Almost always one container per pod.
@@ -315,3 +467,6 @@ You declare what you want. Kubernetes' **control loops** continuously compare ac
 - **Labels are everything** — the selector on a Service must match the labels on the pod template exactly.
 - **`kubectl apply` always** — declarative, idempotent, works for both create and update. Use in all scripts and CI pipelines.
 - **Desired state vs actual state** — the core K8s concept. Declare what you want; control loops reconcile continuously.
+- **Ingress vs LoadBalancer** — LoadBalancer = one LB per service (expensive). Ingress = one LB, routes to many services via path/host rules. Always need an Ingress Controller pod.
+- **PV/PVC/StorageClass** — PV is the storage, PVC is the request, StorageClass enables dynamic provisioning. Production always uses StorageClass.
+- **Deployment vs StatefulSet** — Deployment for stateless (any pod is interchangeable). StatefulSet for databases: stable names, stable DNS, ordered lifecycle, individual PVCs.
